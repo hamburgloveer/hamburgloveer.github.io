@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<title>打卡</title>
+<meta name="theme-color" content="#0a0a0a">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="打卡">
+<link rel="manifest" href="manifest.json">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body {
+    background: #0a0a0a;
+    color: #f5f5f5;
+    font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    min-height: 100vh;
+    padding: calc(env(safe-area-inset-top) + 32px) 24px calc(env(safe-area-inset-bottom) + 32px);
+    max-width: 480px;
+    margin: 0 auto;
+  }
+  h1 {
+    font-family: Georgia, "Songti SC", serif;
+    font-size: 28px;
+    font-weight: 600;
+    letter-spacing: 0.2em;
+    text-align: center;
+    margin-bottom: 8px;
+  }
+  .subtitle { text-align: center; color: #888; font-size: 13px; margin-bottom: 28px; }
+  .stats { display: flex; justify-content: center; gap: 56px; margin-bottom: 32px; }
+  .stat { text-align: center; }
+  .stat .num {
+    font-family: Georgia, "Songti SC", serif;
+    font-size: 56px;
+    font-weight: 600;
+    line-height: 1.1;
+  }
+  .stat .label { color: #888; font-size: 13px; margin-top: 4px; }
+  .btn-wrap { display: flex; flex-direction: column; align-items: center; margin-bottom: 36px; }
+  #checkBtn {
+    width: 208px;
+    height: 208px;
+    border-radius: 50%;
+    border: 1px solid #333;
+    background: #000;
+    color: #f5f5f5;
+    font-size: 32px;
+    letter-spacing: 0.15em;
+    cursor: pointer;
+    box-shadow: 0 12px 40px rgba(255, 255, 255, 0.08);
+    transition: transform 0.15s ease, background 0.2s ease, color 0.2s ease;
+    -webkit-tap-highlight-color: transparent;
+  }
+  #checkBtn:active { transform: scale(0.96); }
+  #checkBtn.done { background: #f5f5f5; color: #0a0a0a; border-color: #f5f5f5; }
+  #checkBtn span { display: block; font-size: 13px; letter-spacing: 0.05em; margin-top: 8px; color: #888; }
+  #checkBtn.done span { color: #555; }
+  .status { margin-top: 16px; color: #888; font-size: 14px; text-align: center; }
+  .cal-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+  .cal-head .month { font-family: Georgia, "Songti SC", serif; font-size: 20px; }
+  .cal-head button {
+    background: none; border: 1px solid #333; color: #ccc;
+    width: 32px; height: 32px; border-radius: 50%; cursor: pointer; font-size: 16px;
+  }
+  .cal-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 6px; text-align: center; }
+  .cal-grid .wd { color: #666; font-size: 12px; padding: 4px 0; }
+  .cal-grid .day {
+    aspect-ratio: 1;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 14px; color: #ccc; border-radius: 50%;
+  }
+  .cal-grid .day.today { border: 1px solid #555; }
+  .cal-grid .day.checked { background: #f5f5f5; color: #0a0a0a; font-weight: 600; }
+  .cal-grid .day.empty { visibility: hidden; }
+  .month-count { text-align: center; color: #888; font-size: 13px; margin-top: 12px; }
+  .foot { text-align: center; color: #555; font-size: 12px; margin-top: 28px; line-height: 1.8; }
+</style>
+</head>
+<body>
+  <h1>打卡</h1>
+  <p class="subtitle" id="todayLabel"></p>
+
+  <div class="stats">
+    <div class="stat"><div class="num" id="totalNum">0</div><div class="label">累计天数</div></div>
+    <div class="stat"><div class="num" id="streakNum">0</div><div class="label">连续打卡</div></div>
+  </div>
+
+  <div class="btn-wrap">
+    <button id="checkBtn">打卡</button>
+    <p class="status" id="statusText"></p>
+  </div>
+
+  <div class="cal-head">
+    <button id="prevMonth">‹</button>
+    <div class="month" id="monthLabel"></div>
+    <button id="nextMonth">›</button>
+  </div>
+  <div class="cal-grid" id="calGrid"></div>
+  <p class="month-count" id="monthCount"></p>
+
+  <p class="foot">记录只保存在这台手机的浏览器里<br>换设备或清除网站数据后会消失</p>
+
+<script>
+  const KEY = 'daka-days';
+  const load = () => { try { return new Set(JSON.parse(localStorage.getItem(KEY) || '[]')); } catch (e) { return new Set(); } };
+  const save = (s) => localStorage.setItem(KEY, JSON.stringify([...s]));
+  let days = load();
+
+  const pad = (n) => String(n).padStart(2, '0');
+  const fmt = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
+  const parse = (s) => { const p = s.split('-'); return new Date(+p[0], +p[1] - 1, +p[2]); };
+  const today = new Date();
+  const todayStr = fmt(today);
+
+  const btn = document.getElementById('checkBtn');
+  const statusText = document.getElementById('statusText');
+
+  function streak() {
+    let n = 0;
+    let d = new Date(today);
+    if (!days.has(fmt(d))) d.setDate(d.getDate() - 1);
+    while (days.has(fmt(d))) { n++; d.setDate(d.getDate() - 1); }
+    return n;
+  }
+
+  function render() {
+    const done = days.has(todayStr);
+    btn.innerHTML = done ? '✓<span>再点一次取消</span>' : '打卡';
+    btn.className = done ? 'done' : '';
+    document.getElementById('totalNum').textContent = days.size;
+    document.getElementById('streakNum').textContent = streak();
+    document.getElementById('todayLabel').textContent =
+      today.getFullYear() + '年' + (today.getMonth() + 1) + '月' + today.getDate() + '日';
+    statusText.textContent = done ? '今日已打卡' : '今日还未打卡';
+    renderCal();
+  }
+
+  let viewY = today.getFullYear(), viewM = today.getMonth();
+  function renderCal() {
+    const first = new Date(viewY, viewM, 1);
+    const offset = (first.getDay() + 6) % 7; // Monday first
+    const dim = new Date(viewY, viewM + 1, 0).getDate();
+    document.getElementById('monthLabel').textContent = viewY + '年' + (viewM + 1) + '月';
+    let count = 0;
+    let html = ['一','二','三','四','五','六','日'].map(w => '<div class="wd">' + w + '</div>').join('');
+    for (let i = 0; i < offset; i++) html += '<div class="day empty"></div>';
+    for (let d = 1; d <= dim; d++) {
+      const s = viewY + '-' + pad(viewM + 1) + '-' + pad(d);
+      const cls = ['day'];
+      if (days.has(s)) { cls.push('checked'); count++; }
+      if (s === todayStr) cls.push('today');
+      html += '<div class="' + cls.join(' ') + '">' + d + '</div>';
+    }
+    document.getElementById('calGrid').innerHTML = html;
+    document.getElementById('monthCount').textContent = '本月已打卡 ' + count + ' 天';
+  }
+
+  btn.addEventListener('click', () => {
+    if (days.has(todayStr)) days.delete(todayStr); else days.add(todayStr);
+    save(days);
+    render();
+  });
+  document.getElementById('prevMonth').addEventListener('click', () => {
+    viewM--; if (viewM < 0) { viewM = 11; viewY--; } renderCal();
+  });
+  document.getElementById('nextMonth').addEventListener('click', () => {
+    viewM++; if (viewM > 11) { viewM = 0; viewY++; } renderCal();
+  });
+
+  render();
+</script>
+</body>
+</html>
