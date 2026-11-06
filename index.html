@@ -14,57 +14,49 @@
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
   html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
   body {
-    background: #fff;
-    color: #000;
+    background: radial-gradient(120% 90% at 50% 38%, #111116 0%, #000 62%);
+    color: #fff;
     font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     height: 100dvh;
   }
 
-  /* 封面：黑底白圈 */
-  #cover {
-    position: fixed; inset: 0; z-index: 10;
-    background: #000;
-    display: flex; flex-direction: column; align-items: center; justify-content: center;
-    cursor: pointer;
-    transition: opacity .35s ease;
-  }
-  #cover.hide { opacity: 0; pointer-events: none; }
-  #cover .ring { width: min(46vw, 210px); aspect-ratio: 1; border: 2px solid #fff; border-radius: 50%; }
-  #cover .name { color: #fff; margin-top: 40px; font-size: 22px; letter-spacing: .55em; text-indent: .55em; font-weight: 500; }
-  #cover .hint { color: #555; margin-top: 20px; font-size: 12px; letter-spacing: .3em; text-indent: .3em; }
+  /* 星空底：细碎星点，少许微闪 */
+  #stars { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+  #stars i { position: absolute; border-radius: 50%; background: #fff; display: block; }
+  @keyframes tw { from { opacity: .15; } to { opacity: .85; } }
 
   /* 主界面：固定一屏，不可上下滑动 */
   .app {
+    position: relative; z-index: 1;
     height: 100dvh; max-width: 480px; margin: 0 auto;
     display: flex; flex-direction: column; align-items: center;
     padding: calc(env(safe-area-inset-top, 0px) + 22px) 24px calc(env(safe-area-inset-bottom, 0px) + 22px);
   }
-  .date { font-size: 15px; letter-spacing: .18em; }
-  .date .wd { color: #999; margin-left: 8px; }
+  .date { font-size: 15px; letter-spacing: .18em; color: #fff; }
+  .date .wd { color: #888; margin-left: 8px; }
   .btn-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
   #checkBtn {
     width: min(74vw, 330px); aspect-ratio: 1; border-radius: 50%;
-    border: 2px solid #000; background: #fff; color: #000;
+    border: 2px solid #fff; background: #fff; color: #000;
     font-size: 30px; letter-spacing: .25em; text-indent: .25em;
     display: flex; flex-direction: column; align-items: center; justify-content: center;
     cursor: pointer;
-    transition: transform .12s ease, background .2s ease, color .2s ease;
+    box-shadow: 0 0 60px rgba(255,255,255,.28), 0 0 140px rgba(255,255,255,.10);
+    transition: transform .12s ease, background .2s ease, color .2s ease, box-shadow .2s ease;
   }
   #checkBtn:active { transform: scale(.97); }
-  #checkBtn.done { background: #000; color: #fff; }
+  /* 已打卡：月食——黑底白圈 */
+  #checkBtn.done { background: #000; color: #fff; box-shadow: 0 0 44px rgba(255,255,255,.16); }
   #checkBtn .tick { display: block; font-size: 58px; line-height: 1.1; }
-  #checkBtn .sub { display: block; font-size: 12px; letter-spacing: .2em; text-indent: .2em; margin-top: 10px; color: #777; }
+  #checkBtn .sub { display: block; font-size: 12px; letter-spacing: .2em; text-indent: .2em; margin-top: 10px; color: #999; }
+  #checkBtn.done .sub { color: #999; }
   .bottom { display: flex; flex-direction: column; align-items: center; gap: 10px; }
-  .bottom .nav a { color: #000; font-size: 14px; letter-spacing: .25em; text-decoration: none; }
-  .bottom .sync { color: #bbb; font-size: 11px; letter-spacing: .08em; }
+  .bottom .nav a { color: #fff; font-size: 14px; letter-spacing: .25em; text-decoration: none; }
+  .bottom .sync { color: #666; font-size: 11px; letter-spacing: .08em; }
 </style>
 </head>
 <body>
-  <div id="cover">
-    <div class="ring"></div>
-    <div class="name">DONT</div>
-    <div class="hint">轻点进入</div>
-  </div>
+  <div id="stars"></div>
 
   <div class="app">
     <div class="date"><span id="dateLabel"></span><span class="wd" id="wdLabel"></span></div>
@@ -92,6 +84,27 @@
     Authorization: 'Bearer ' + GITHUB_TOKEN,
     Accept: 'application/vnd.github+json',
   };
+
+  // 星空：细碎星点，少许微闪
+  (function stars() {
+    const layer = document.getElementById('stars');
+    for (let i = 0; i < 90; i++) {
+      const s = document.createElement('i');
+      const size = Math.random() < 0.85 ? 1 : 2;
+      const twinkle = Math.random() < 0.3;
+      s.style.left = (Math.random() * 100).toFixed(2) + '%';
+      s.style.top = (Math.random() * 100).toFixed(2) + '%';
+      s.style.width = size + 'px';
+      s.style.height = size + 'px';
+      if (twinkle) {
+        s.style.animation = 'tw 3.5s ease-in-out infinite alternate';
+        s.style.animationDelay = (Math.random() * 3).toFixed(1) + 's';
+      } else {
+        s.style.opacity = (0.25 + Math.random() * 0.6).toFixed(2);
+      }
+      layer.appendChild(s);
+    }
+  })();
 
   // 一次性迁移旧版记录
   try {
@@ -186,11 +199,6 @@
     save(days);
     render();
     pushRemote();
-  });
-
-  document.getElementById('cover').addEventListener('click', function () {
-    this.classList.add('hide');
-    setTimeout(() => { this.style.display = 'none'; }, 400);
   });
 
   render();
