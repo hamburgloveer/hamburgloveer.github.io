@@ -52,7 +52,31 @@
   #checkBtn.done .sub { color: #999; }
   .bottom { display: flex; flex-direction: column; align-items: center; gap: 10px; }
   .bottom .nav a { color: #fff; font-size: 14px; letter-spacing: .25em; text-decoration: none; }
-  .bottom .sync { color: #666; font-size: 11px; letter-spacing: .08em; }
+  .bottom .sync { color: #666; font-size: 11px; letter-spacing: .08em; cursor: pointer; }
+
+  /* 连接设置：一次性粘贴 token，存在本机 */
+  #setup {
+    position: fixed; inset: 0; z-index: 20; display: none;
+    background: rgba(0,0,0,.92);
+    align-items: center; justify-content: center; padding: 28px;
+  }
+  #setup.open { display: flex; }
+  #setup .card { width: 100%; max-width: 380px; text-align: center; }
+  #setup h2 { font-size: 18px; letter-spacing: .3em; text-indent: .3em; font-weight: 500; margin-bottom: 16px; }
+  #setup p { color: #999; font-size: 13px; line-height: 1.9; letter-spacing: .05em; margin-bottom: 16px; }
+  #setup a { color: #fff; }
+  #setup input {
+    width: 100%; background: #111; border: 1px solid #444; border-radius: 10px;
+    color: #fff; font-size: 14px; padding: 13px 14px; outline: none;
+    font-family: ui-monospace, Menlo, monospace;
+  }
+  #setup input:focus { border-color: #fff; }
+  #setup .err { color: #ff7b7b; font-size: 12px; min-height: 18px; margin: 8px 0; letter-spacing: .05em; }
+  #setup .save {
+    width: 100%; background: #fff; color: #000; border: none; border-radius: 999px;
+    font-size: 15px; letter-spacing: .3em; text-indent: .3em; padding: 13px 0; cursor: pointer;
+  }
+  #setup .close { display: inline-block; margin-top: 16px; color: #666; font-size: 13px; letter-spacing: .2em; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -69,21 +93,30 @@
     </div>
   </div>
 
+  <div id="setup">
+    <div class="card">
+      <h2>连接 GitHub</h2>
+      <p>粘贴一个 token，只需一次，存在这台手机里，不会写进网页和仓库。<br><a href="https://github.com/settings/personal-access-tokens/new" target="_blank" rel="noopener">去 GitHub 生成 token →</a><br>生成时只选 hamburgloveer.github.io 这个仓库，勾 Contents 读写。</p>
+      <input id="tokenInput" type="password" placeholder="github_pat_…" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <div class="err" id="setupErr"></div>
+      <button class="save" id="tokenSave">保存</button>
+      <div class="close" id="setupClose">以后再说</div>
+    </div>
+  </div>
+
 <script>
   const KEY = 'dont-days';
   const OLD_KEY = 'daka-days';
-  // 直连 GitHub：打卡记录存在仓库根目录的 data.json 里。
-  // token 写在公开网页里，看源码就能拿到；它只限这一个仓库的 Contents 读写，
-  // 用户已确认接受。不要把这个 token 用在别的仓库，也不要给它加更多权限。
+  const TOKEN_KEY = 'dont-gh-token';
+  // 同步方式：打卡记录存在仓库根目录的 data.json 里，直连 GitHub API。
+  // token 不写进网页：由用户在设置里粘贴一次，只存在这台手机的浏览器里。
+  // （token 写进公开网页会被 GitHub 自动吊销，所以不能嵌在代码里。）
   const REPO = 'hamburgloveer/hamburgloveer.github.io';
   const FILE_PATH = 'data.json';
   const BRANCH = 'main';
-  const GITHUB_TOKEN = "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";
   const GH_API = 'https://api.github.com/repos/' + REPO + '/contents/' + FILE_PATH;
-  const ghHeaders = {
-    Authorization: 'Bearer ' + GITHUB_TOKEN,
-    Accept: 'application/vnd.github+json',
-  };
+  const getToken = () => { try { return (localStorage.getItem(TOKEN_KEY) || '').trim(); } catch (e) { return ''; } };
+  const ghHeaders = () => ({ Authorization: 'Bearer ' + getToken(), Accept: 'application/vnd.github+json' });
 
   // 星空：细碎星点，少许微闪
   (function stars() {
@@ -130,7 +163,6 @@
   document.getElementById('wdLabel').textContent = WEEKDAYS[today.getDay()];
 
   function setSync(t) { syncLabel.textContent = t; }
-  setSync('同步中…');
 
   function render() {
     const done = days.has(todayStr);
@@ -139,9 +171,10 @@
     btn.id = 'checkBtn';
   }
 
-  // 读仓库里的 data.json；文件不存在返回空记录
+  // 读仓库里的 data.json；没有 token 或文件不存在返回空记录
   async function fetchRemote() {
-    const r = await fetch(GH_API + '?ref=' + BRANCH, { headers: ghHeaders });
+    if (!getToken()) return { days: [], sha: null };
+    const r = await fetch(GH_API + '?ref=' + BRANCH, { headers: ghHeaders() });
     if (r.status === 404) return { days: [], sha: null };
     if (!r.ok) throw new Error('read failed');
     const data = await r.json();
@@ -152,6 +185,7 @@
 
   // 把本机全量记录写回 data.json（覆盖式）；sha 冲突时重读一次再写
   async function pushRemote() {
+    if (!getToken()) return;
     try {
       const cur = await fetchRemote();
       const payload = {
@@ -162,7 +196,7 @@
       if (cur.sha) payload.sha = cur.sha;
       let r = await fetch(GH_API, {
         method: 'PUT',
-        headers: { ...ghHeaders, 'Content-Type': 'application/json' },
+        headers: { ...ghHeaders(), 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       if (r.status === 409) {
@@ -170,17 +204,19 @@
         if (cur2.sha) payload.sha = cur2.sha;
         r = await fetch(GH_API, {
           method: 'PUT',
-          headers: { ...ghHeaders, 'Content-Type': 'application/json' },
+          headers: { ...ghHeaders(), 'Content-Type': 'application/json' },
           body: JSON.stringify(payload),
         });
       }
       if (r.ok) setSync('已同步 GitHub');
+      else if (r.status === 401) { setSync('token 已失效 · 点此重设'); }
       else setSync('同步失败 · 仅本机');
     } catch (e) { setSync('同步失败 · 仅本机'); }
   }
 
   // 打开时合并：GitHub 上有的、本机没有的补进来；本机独有的再推上去
   async function syncFromRemote() {
+    if (!getToken()) { setSync('未连接 GitHub · 点此设置'); return; }
     try {
       const remoteDays = (await fetchRemote()).days;
       const remote = new Set(remoteDays);
@@ -194,6 +230,31 @@
     } catch (e) { setSync('同步失败 · 仅本机'); }
   }
 
+  // 设置面板：粘贴 token，校验通过才保存
+  const setupEl = document.getElementById('setup');
+  const tokenInput = document.getElementById('tokenInput');
+  const setupErr = document.getElementById('setupErr');
+  function openSetup() { setupErr.textContent = ''; tokenInput.value = getToken(); setupEl.classList.add('open'); tokenInput.focus(); }
+  function closeSetup() { setupEl.classList.remove('open'); }
+  syncLabel.addEventListener('click', openSetup);
+  document.getElementById('setupClose').addEventListener('click', closeSetup);
+  document.getElementById('tokenSave').addEventListener('click', async () => {
+    const t = tokenInput.value.trim();
+    if (!t) { setupErr.textContent = '先粘贴 token'; return; }
+    setupErr.textContent = '正在校验…';
+    try {
+      const r = await fetch(GH_API + '?ref=' + BRANCH, {
+        headers: { Authorization: 'Bearer ' + t, Accept: 'application/vnd.github+json' },
+      });
+      if (r.status === 401) { setupErr.textContent = 'token 不对，请检查'; return; }
+      if (!r.ok && r.status !== 404) { setupErr.textContent = '连不上 GitHub，稍后再试'; return; }
+      localStorage.setItem(TOKEN_KEY, t);
+      closeSetup();
+      setSync('同步中…');
+      syncFromRemote();
+    } catch (e) { setupErr.textContent = '连不上 GitHub，稍后再试'; }
+  });
+
   btn.addEventListener('click', () => {
     if (days.has(todayStr)) days.delete(todayStr); else days.add(todayStr);
     save(days);
@@ -203,6 +264,7 @@
 
   render();
   syncFromRemote();
+  if (location.hash === '#setup') openSetup();
 </script>
 </body>
 </html>
