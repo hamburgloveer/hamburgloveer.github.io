@@ -79,8 +79,26 @@
 <script>
   const KEY = 'dont-days';
   const OLD_KEY = 'daka-days';
-  // 与首页保持一致：部署 Worker 后填入地址，为空时只读本机记录。
-  const WORKER_URL = "";
+  // 与首页保持一致：直连 GitHub 读仓库里的 data.json。
+  // token 写在公开网页里，看源码就能拿到；只限这一个仓库的 Contents 读写，用户已确认接受。
+  const REPO = 'hamburgloveer/hamburgloveer.github.io';
+  const FILE_PATH = 'data.json';
+  const BRANCH = 'main';
+  const GITHUB_TOKEN = "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";
+  const GH_API = 'https://api.github.com/repos/' + REPO + '/contents/' + FILE_PATH;
+  const ghHeaders = {
+    Authorization: 'Bearer ' + GITHUB_TOKEN,
+    Accept: 'application/vnd.github+json',
+  };
+  async function fetchRemote() {
+    const r = await fetch(GH_API + '?ref=' + BRANCH, { headers: ghHeaders });
+    if (r.status === 404) return { days: [], sha: null };
+    if (!r.ok) throw new Error('read failed');
+    const data = await r.json();
+    let remote = [];
+    try { remote = JSON.parse(atob(data.content.replace(/\n/g, ''))).days || []; } catch (e) {}
+    return { days: remote, sha: data.sha };
+  }
 
   try {
     if (!localStorage.getItem(KEY) && localStorage.getItem(OLD_KEY)) {
@@ -141,12 +159,8 @@
 
   render();
   (async () => {
-    if (!WORKER_URL) return;
     try {
-      const r = await fetch(WORKER_URL + '/api/days');
-      if (!r.ok) return;
-      const data = await r.json();
-      const remote = new Set(Array.isArray(data.days) ? data.days : []);
+      const remote = new Set((await fetchRemote()).days);
       let changed = false;
       remote.forEach((d) => { if (!days.has(d)) { days.add(d); changed = true; } });
       if (changed) { save(days); render(); }
