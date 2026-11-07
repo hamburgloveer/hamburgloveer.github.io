@@ -10,11 +10,14 @@
 <meta name="apple-mobile-web-app-title" content="DONT">
 <link rel="manifest" href="manifest.json">
 <link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<link rel="apple-touch-startup-image" href="apple-touch-startup-image.png" media="(device-width: 430px) and (device-height: 932px) and (-webkit-device-pixel-ratio: 3) and (orientation: portrait)">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
-  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; }
+  html, body { height: 100%; overflow: hidden; overscroll-behavior: none; background: #000; }
   body {
-    background: radial-gradient(120% 90% at 50% 30%, #111116 0%, #000 62%);
+    background-color: #000;
+    background-image: radial-gradient(120% 90% at 50% 30%, #111116 0%, #000 62%);
     color: #fff;
     font-family: -apple-system, "PingFang SC", "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
     height: 100dvh;
@@ -60,8 +63,11 @@
   .cal-grid .day.future .dot { color: #444; }
   .cal-grid .day.today .dot { box-shadow: inset 0 0 0 1.5px #fff; }
   .cal-grid .day.checked .dot { background: #fff; color: #000; font-weight: 600; box-shadow: 0 0 18px rgba(255,255,255,.35); }
+  .cal-grid .day.tappable { cursor: pointer; }
+  .cal-grid .day.tappable .dot:active { box-shadow: inset 0 0 0 1.5px #888; }
   .cal-grid .day.empty .dot { visibility: hidden; }
   .month-count { text-align: center; color: #888; font-size: 13px; letter-spacing: .1em; margin-top: 10px; }
+  .hint { text-align: center; color: #666; font-size: 12px; letter-spacing: .1em; margin-top: 6px; }
   .setup-link { text-align: center; margin-top: 8px; }
   .setup-link a { color: #666; font-size: 12px; letter-spacing: .1em; text-decoration: none; }
 </style>
@@ -83,6 +89,7 @@
     </div>
     <div class="cal-grid" id="calGrid"></div>
     <p class="month-count" id="monthCount"></p>
+    <p class="hint">点过去的日期可以补打卡</p>
     <div class="setup-link"><a href="index.html#setup">同步设置 →</a></div>
   </div>
 
@@ -107,6 +114,34 @@
     let remote = [];
     try { remote = JSON.parse(atob(data.content.replace(/\n/g, ''))).days || []; } catch (e) {}
     return { days: remote, sha: data.sha };
+  }
+
+  // 补打卡：把本机全量记录写回 data.json（覆盖式）；sha 冲突时重读一次再写
+  async function pushRemote() {
+    if (!getToken()) return;
+    try {
+      const cur = await fetchRemote();
+      const payload = {
+        message: 'update check-in data',
+        content: btoa(JSON.stringify({ days: [...days] })),
+        branch: BRANCH,
+      };
+      if (cur.sha) payload.sha = cur.sha;
+      let r = await fetch(GH_API, {
+        method: 'PUT',
+        headers: { ...ghHeaders(), 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      if (r.status === 409) {
+        const cur2 = await fetchRemote();
+        if (cur2.sha) payload.sha = cur2.sha;
+        await fetch(GH_API, {
+          method: 'PUT',
+          headers: { ...ghHeaders(), 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+      }
+    } catch (e) {}
   }
 
   // 星空：细碎星点，少许微闪
@@ -167,8 +202,8 @@
       const cls = ['day'];
       if (days.has(s)) { cls.push('checked'); count++; }
       if (s === todayStr) cls.push('today');
-      if (s > todayStr) cls.push('future');
-      html += '<div class="' + cls.join(' ') + '"><div class="dot">' + d + '</div></div>';
+      if (s > todayStr) cls.push('future'); else cls.push('tappable');
+      html += '<div class="' + cls.join(' ') + '" data-date="' + s + '"><div class="dot">' + d + '</div></div>';
     }
     document.getElementById('calGrid').innerHTML = html;
     document.getElementById('monthCount').textContent = '本月已打卡 ' + count + ' 天';
@@ -185,6 +220,17 @@
   });
   document.getElementById('nextMonth').addEventListener('click', () => {
     viewM++; if (viewM > 11) { viewM = 0; viewY++; } renderCal();
+  });
+
+  // 点过去的日期补打卡 / 取消（未来的日期点不了）
+  document.getElementById('calGrid').addEventListener('click', (e) => {
+    const cell = e.target.closest('.day.tappable');
+    if (!cell) return;
+    const s = cell.dataset.date;
+    if (days.has(s)) days.delete(s); else days.add(s);
+    save(days);
+    render();
+    pushRemote();
   });
 
   render();
