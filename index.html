@@ -37,6 +37,7 @@
   }
   .date { font-size: 15px; letter-spacing: .18em; color: #fff; }
   .date .wd { color: #888; margin-left: 8px; }
+  .streak { margin-top: 14px; min-height: 20px; font-size: 14px; letter-spacing: .2em; color: #bbb; }
   .btn-wrap { flex: 1; min-height: 0; display: flex; align-items: center; justify-content: center; }
   #checkBtn {
     width: min(74vw, 330px); aspect-ratio: 1; border-radius: 50%;
@@ -48,6 +49,8 @@
     transition: transform .12s ease, background .2s ease, color .2s ease, box-shadow .2s ease;
   }
   #checkBtn:active { transform: scale(.97); }
+  @keyframes pop { 0% { transform: scale(1); } 35% { transform: scale(1.05); } 100% { transform: scale(1); } }
+  #checkBtn.pop { animation: pop .35s ease; }
   /* 已打卡：月食——黑底白圈 */
   #checkBtn.done { background: #000; color: #fff; box-shadow: 0 0 44px rgba(255,255,255,.16); }
   #checkBtn .tick { display: block; font-size: 58px; line-height: 1.1; }
@@ -87,6 +90,7 @@
 
   <div class="app">
     <div class="date"><span id="dateLabel"></span><span class="wd" id="wdLabel"></span></div>
+    <div class="streak" id="streakLabel"></div>
     <div class="btn-wrap">
       <button id="checkBtn">打卡</button>
     </div>
@@ -167,12 +171,49 @@
 
   function setSync(t) { syncLabel.textContent = t; }
 
+  function streak() {
+    let n = 0;
+    let d = new Date(today);
+    if (!days.has(fmt(d))) d.setDate(d.getDate() - 1);
+    while (days.has(fmt(d))) { n++; d.setDate(d.getDate() - 1); }
+    return n;
+  }
+
   function render() {
     const done = days.has(todayStr);
     btn.innerHTML = done ? '<span class="tick">✓</span><span class="sub">再点一次取消</span>' : '打卡';
     btn.className = done ? 'done' : '';
     btn.id = 'checkBtn';
+    const s = streak();
+    document.getElementById('streakLabel').textContent = s >= 1 ? '连续打卡 ' + s + ' 天' : '';
   }
+
+  // 音效：Web Audio 合成，不用音频文件
+  let audioCtx = null;
+  function tone(freq, delay, dur, vol) {
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sine';
+    o.frequency.value = freq;
+    const t = audioCtx.currentTime + delay;
+    g.gain.setValueAtTime(0, t);
+    g.gain.linearRampToValueAtTime(vol, t + 0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
+    o.connect(g);
+    g.connect(audioCtx.destination);
+    o.start(t);
+    o.stop(t + dur + 0.05);
+  }
+  function playSound(checked) {
+    try {
+      audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+      if (audioCtx.state === 'suspended') audioCtx.resume();
+      if (checked) { tone(660, 0, 0.18, 0.12); tone(990, 0.09, 0.3, 0.1); }
+      else tone(330, 0, 0.15, 0.07);
+    } catch (e) {}
+  }
+  // 触感：iOS 浏览器不开放震动接口，调用在 iPhone 上无效果，安卓可用
+  function buzz(ms) { try { if (navigator.vibrate) navigator.vibrate(ms); } catch (e) {} }
 
   // 读仓库里的 data.json；没有 token 或文件不存在返回空记录
   async function fetchRemote() {
@@ -259,9 +300,15 @@
   });
 
   btn.addEventListener('click', () => {
-    if (days.has(todayStr)) days.delete(todayStr); else days.add(todayStr);
+    const checked = !days.has(todayStr);
+    if (checked) days.add(todayStr); else days.delete(todayStr);
     save(days);
     render();
+    btn.classList.remove('pop');
+    void btn.offsetWidth;
+    btn.classList.add('pop');
+    playSound(checked);
+    buzz(checked ? 15 : 8);
     pushRemote();
   });
 
